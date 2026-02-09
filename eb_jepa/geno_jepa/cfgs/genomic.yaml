@@ -1,0 +1,56 @@
+# Genomic JEPA (VICReg/BCS) Training Configuration
+# Train a self-supervised representation model on genomic data (gene expression + DNA methylation)
+
+meta:
+  seed: 42
+  device: auto  # auto, cuda, or cpu
+
+data:
+  use_genomic: true  # Use genomic data instead of CIFAR-10
+  base_path: /home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate
+  batch_size: 32     # Smaller batch size for genomic data
+  num_workers: 4
+
+model:
+  # Backbone
+  type: resnet       # resnet, vit_s, vit_b
+  patch_size: 41     # For ViT only - matches one dimension of genomic data (383x41)
+
+  # Projector
+  use_projector: true
+  proj_hidden_dim: 2048
+  proj_output_dim: 2048
+
+loss:
+  type: vicreg       # vicreg or bcs
+  # VICReg loss weights
+  std_coeff: 1.0
+  cov_coeff: 80.0
+  # BCS loss weight (only used if type=bcs)
+  lmbd: 10.0
+
+optim:
+  epochs: 150
+  lr: 0.1            # Lower learning rate for genomic data
+  weight_decay: 1.0e-4
+  warmup_epochs: 10
+  warmup_start_lr: 1.0e-5
+  min_lr: 0.0
+
+logging:
+  log_wandb: true
+  wandb_group: genomic_jepa  # Group genomic runs together
+  log_every: 5       # Log every N epochs
+  save_every: 25     # Save checkpoint every N epochs
+  tqdm_silent: false # Disable tqdm progress bars
+
+training:
+  use_amp: true      # Use automatic mixed precision
+  dtype: bfloat16    # float16 or bfloat16
+
+# Notes:
+# - Input data: 2-channel images of shape (2, 383, 41)
+#   - Channel 0: Gene expression (reshaped from 15703)
+#   - Channel 1: DNA methylation (reshaped from 15703)
+# - Augmentations: Gaussian noise, random masking, channel dropout
+# - Output: Self-supervised representations for downstream cancer classification

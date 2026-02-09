@@ -9,3 +9,15 @@ __pycache__/
 venv/
 env/
 .env
+.vscode/
+**/wandb/
+**/checkpoints/
+*.pth.tar
+*.tar
+*.gz
+*.zip
+*.npz
+*.png
+*.gif
+*.jpg
+*.jpeg
