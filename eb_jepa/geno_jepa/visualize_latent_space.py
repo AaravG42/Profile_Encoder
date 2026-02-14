@@ -1,8 +1,8 @@
 """
-Visualize the latent space of a trained JEPA model using UMAP.
+Visualize the latent space of a trained Genomic JEPA model using UMAP.
 
 Usage:
-    python -m examples.image_jepa.visualize_latent_space \
+    python -m eb_jepa.geno_jepa.visualize_latent_space \
         --checkpoint_path /path/to/checkpoint.pth.tar \
         --save_path latent_space_umap.png
 """
@@ -21,8 +21,8 @@ from torchvision.models import VisionTransformer
 from tqdm import tqdm
 from umap import UMAP
 
-from examples.image_jepa.dataset import GenomicDataset, get_genomic_val_transforms
-from examples.image_jepa.main import ImageSSL, ResNet18
+from geno_jepa.dataset import GenomicDataset, get_genomic_val_transforms
+from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder
 
 
 def load_model_from_checkpoint(checkpoint_path, device="cuda"):
@@ -30,23 +30,32 @@ def load_model_from_checkpoint(checkpoint_path, device="cuda"):
     print(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
-    # Extract config info from checkpoint if available
-    # Otherwise use defaults
-    use_genomic = True
-    in_channels = 2
-    model_type = "resnet"  # Default, try to infer from checkpoint
+    # Try to infer model type from checkpoint path
+    checkpoint_path_str = str(checkpoint_path)
+    if "conv1d" in checkpoint_path_str.lower():
+        model_type = "conv1d"
+    elif "vit" in checkpoint_path_str.lower():
+        model_type = "vit"
+    else:
+        model_type = "resnet"
+    
+    print(f"Inferred model type: {model_type}")
     
     # Initialize backbone
-    if model_type == "resnet":
-        backbone = ResNet18(in_channels=in_channels)
+    if model_type == "conv1d":
+        backbone = Conv1DEncoder(in_channels=2)
         features_dim = backbone.features_dim
-        print(f"Using ResNet18 backbone with {in_channels} input channels")
+        print(f"Using Conv1DEncoder backbone (features_dim={features_dim})")
+    elif model_type == "resnet":
+        backbone = ResNet18(in_channels=2)
+        features_dim = backbone.features_dim
+        print(f"Using ResNet18 backbone with 2 input channels")
     else:
         # ViT backbone (not implemented in this simple loader)
         raise NotImplementedError("ViT loading not yet implemented")
     
     # Initialize model
-    model = ImageSSL(
+    model = GenomicSSL(
         backbone,
         features_dim=features_dim,
         proj_hidden_dim=2048,
@@ -311,14 +320,14 @@ def plot_umap_density(embedding, labels, save_path):
 
 
 def main(
-    checkpoint_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/Aarav_exps/eb_jepa/checkpoints/image_jepa/dev_2026-02-06_07-03/resnet_vicreg_proj_bs32_ep150_ph2048_po2048_std1.0_cov80.0_seed42/epoch_25.pth.tar",
+    checkpoint_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/Aarav_exps/eb_jepa/checkpoints/image_jepa/dev_2026-02-10_05-01/conv1d_vicreg_proj_bs32_ep150_ph2048_po2048_std1.0_cov80.0_seed42/latest.pth.tar",
     data_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate",
     save_path: str = None,
     device: str = "cuda",
     batch_size: int = 32,
 ):
     """
-    Visualize latent space of trained JEPA model.
+    Visualize latent space of trained Genomic JEPA model.
     
     Args:
         checkpoint_path: Path to model checkpoint

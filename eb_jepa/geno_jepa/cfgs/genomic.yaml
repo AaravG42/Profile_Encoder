@@ -8,21 +8,20 @@ meta:
 data:
   use_genomic: true  # Use genomic data instead of CIFAR-10
   base_path: /home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate
-  batch_size: 32     # Smaller batch size for genomic data
-  num_workers: 4
+  batch_size: 128     # Smaller batch size for genomic data
+  num_workers: 12
 
 model:
   # Backbone
-  type: resnet       # resnet, vit_s, vit_b
-  patch_size: 41     # For ViT only - matches one dimension of genomic data (383x41)
-
+  type: conv1d       # conv1d (for genomic), resnet, vit_s, vit_b (for images)
+  
   # Projector
   use_projector: true
   proj_hidden_dim: 2048
   proj_output_dim: 2048
 
 loss:
-  type: vicreg       # vicreg or bcs
+  type: bcs       # vicreg or bcs
   # VICReg loss weights
   std_coeff: 1.0
   cov_coeff: 80.0

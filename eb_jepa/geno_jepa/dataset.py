@@ -154,7 +154,7 @@ class ChannelDropout:
 
     def __call__(self, x):
         if torch.rand(1) < self.prob:
-            # x has shape (C, H, W) where C=2
+            # x has shape (C, L) where C=2 (gene expression, methylation)
             channel_to_drop = torch.randint(0, 2, (1,)).item()
             x[channel_to_drop] = 0
         return x
@@ -180,11 +180,10 @@ class GenomicDataset(torch.utils.data.Dataset):
     """
     Dataset for genomic data (gene expression + DNA methylation).
     
-    Loads 1D tensors of shape (15703,) and reshapes them into 2D images
-    of shape (2, 383, 41) where:
+    Loads 1D tensors of shape (15703,) and keeps them as 1D vectors
+    of shape (2, 15703) where:
     - Channel 0: Gene expression
     - Channel 1: DNA methylation
-    - Spatial dimensions: 383 x 41 (15703 = 383 * 41)
     """
 
     def __init__(
@@ -249,7 +248,7 @@ class GenomicDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            views: List of augmented views (each view is a 2-channel image of shape (2, 383, 41))
+            views: List of augmented views (each view is a 2-channel 1D vector of shape (2, 15703))
             label: Class label
         """
         # Get 1D data
@@ -257,17 +256,13 @@ class GenomicDataset(torch.utils.data.Dataset):
         gene = self.gene_expression[idx]  # Shape: (15703,)
         label = self.labels[idx]
         
-        # Reshape to 2D: 15703 -> (383, 41)
-        meth_2d = meth.reshape(383, 41)
-        gene_2d = gene.reshape(383, 41)
-        
-        # Stack into 2-channel image: (2, 383, 41)
-        image = torch.stack([gene_2d, meth_2d], dim=0)
+        # Stack into 2-channel 1D vector: (2, 15703)
+        vector = torch.stack([gene, meth], dim=0)
         
         # Apply augmentations to create multiple views
         if self.transform is not None:
-            views = [self.transform(image.clone()) for _ in range(self.num_crops)]
+            views = [self.transform(vector.clone()) for _ in range(self.num_crops)]
         else:
-            views = [image for _ in range(self.num_crops)]
+            views = [vector for _ in range(self.num_crops)]
         
         return views, label

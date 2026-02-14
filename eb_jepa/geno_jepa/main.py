@@ -1,15 +1,15 @@
 """
-CIFAR-10 VICReg Training Script - Native PyTorch Implementation
+Genomic VICReg Training Script - Native PyTorch Implementation
 
-This script implements VICReg training on CIFAR-10 dataset using only PyTorch and torchvision.
-Supports both ResNet and Vision Transformer (ViT) backbones.
+This script implements VICReg training on genomic dataset using only PyTorch.
+Supports 1D Convolutional encoder for genomic data, and ResNet/ViT backbones for CIFAR-10.
 
 Usage:
     # With YAML config:
-    python -m examples.image_jepa.main --fname examples/image_jepa/cfgs/default.yaml
+    python -m eb_jepa.geno_jepa.main --fname eb_jepa/geno_jepa/cfgs/genomic.yaml
 
     # With config + overrides:
-    python -m examples.image_jepa.main --fname examples/image_jepa/cfgs/default.yaml optim.epochs=50
+    python -m eb_jepa.geno_jepa.main --fname eb_jepa/geno_jepa/cfgs/genomic.yaml optim.epochs=50
 """
 
 import os
@@ -48,7 +48,7 @@ from eb_jepa.training_utils import (
     setup_seed,
     setup_wandb,
 )
-from examples.image_jepa.dataset import (
+from geno_jepa.dataset import (
     ImageDataset,
     get_train_transforms,
     get_val_transforms,
@@ -56,7 +56,7 @@ from examples.image_jepa.dataset import (
     get_genomic_train_transforms,
     get_genomic_val_transforms,
 )
-from examples.image_jepa.eval import LinearProbe, evaluate_linear_probe
+from geno_jepa.eval import LinearProbe, evaluate_linear_probe
 
 logger = get_logger(__name__)
 
@@ -78,8 +78,42 @@ class ResNet18(nn.Module):
         return self.backbone(x)
 
 
-class ImageSSL(nn.Module):
-    """Image Self-Supervised Learning model implementation."""
+class Conv1DEncoder(nn.Module):
+    """1D Convolutional Encoder for genomic data."""
+
+    def __init__(self, in_channels=2):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Dropout(p=0.1),
+            nn.Conv1d(in_channels, 16, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(16), nn.LeakyReLU(),
+            
+            nn.Conv1d(16, 32, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(32), nn.LeakyReLU(),
+            
+            nn.Conv1d(32, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(64), nn.LeakyReLU(),
+            
+            nn.Conv1d(64, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(64), nn.LeakyReLU(),
+
+            nn.Conv1d(64, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(64), nn.LeakyReLU(),
+        )
+        # Calculate output size: 15703 -> 7852 -> 3926 -> 1963 -> 982 -> 491
+        # Output: (batch_size, 64, 491)
+        self.features_dim = 64 * 491  # Flattened feature dimension
+        
+    def forward(self, x):
+        # x shape: (batch_size, 2, 15703)
+        x = self.encoder(x)
+        # x shape: (batch_size, 64, 491)
+        x = x.flatten(start_dim=1)  # Flatten to (batch_size, 64*491)
+        return x
+
+
+class GenomicSSL(nn.Module):
+    """Genomic Self-Supervised Learning model implementation."""
 
     def __init__(
         self, backbone, features_dim, proj_hidden_dim=2048, proj_output_dim=2048
@@ -336,13 +370,13 @@ def train_epoch(
 
 
 def run(
-    fname: str = "examples/image_jepa/cfgs/default.yaml",
+    fname: str = "geno_jepa/cfgs/genomic.yaml",
     cfg=None,
     folder=None,
     **overrides,
 ):
     """
-    Train an Image JEPA (VICReg/BCS) model on CIFAR-10.
+    Train a Genomic JEPA (VICReg/BCS) model on genomic data.
 
     Args:
         fname: Path to YAML config file
@@ -482,13 +516,17 @@ def run(
 
     # Initialize model
     logger.info("Initializing model...")
-    in_channels = 2 if use_genomic else 3
-    if cfg.model.type == "resnet":
+    if use_genomic:
+        # Use 1D Conv encoder for genomic data
+        backbone = Conv1DEncoder(in_channels=2)
+        features_dim = backbone.features_dim
+    elif cfg.model.type == "resnet":
+        in_channels = 3
         backbone = ResNet18(in_channels=in_channels)
         features_dim = backbone.features_dim
     elif cfg.model.type == "vit_s":
         features_dim = 384
-        image_size = 383 if use_genomic else 32  # Genomic data is 383x41
+        image_size = 32
         patch_size = cfg.model.get("patch_size", 8)
         model_kwargs = dict(
             image_size=image_size,
@@ -500,16 +538,9 @@ def run(
         )
         backbone = VisionTransformer(**model_kwargs)
         backbone.heads = nn.Identity()
-        
-        # Update conv_proj for 2 channels if genomic
-        if use_genomic:
-            backbone.conv_proj = nn.Conv2d(
-                in_channels=2, out_channels=features_dim,
-                kernel_size=patch_size, stride=patch_size
-            )
     elif cfg.model.type == "vit_b":
         features_dim = 768
-        image_size = 383 if use_genomic else 32
+        image_size = 32
         patch_size = cfg.model.get("patch_size", 8)
         model_kwargs = dict(
             image_size=image_size,
@@ -521,15 +552,8 @@ def run(
         )
         backbone = VisionTransformer(**model_kwargs)
         backbone.heads = nn.Identity()
-        
-        # Update conv_proj for 2 channels if genomic
-        if use_genomic:
-            backbone.conv_proj = nn.Conv2d(
-                in_channels=2, out_channels=features_dim,
-                kernel_size=patch_size, stride=patch_size
-            )
 
-    model = ImageSSL(
+    model = GenomicSSL(
         backbone,
         features_dim=features_dim,
         proj_hidden_dim=cfg.model.proj_hidden_dim,
