@@ -105,11 +105,93 @@ class Conv1DEncoder(nn.Module):
         self.features_dim = 64 * 491  # Flattened feature dimension
         
     def forward(self, x):
-        # x shape: (batch_size, 2, 15703)
+        # x shape can be (batch_size, C, L) or (batch_size, C, N, P)
+        if x.dim() == 4:
+            # Flatten patches back to 1D if it was reshaped in dataset
+            b, c, n, p = x.shape
+            x = x.reshape(b, c, n * p)
+            # Clip if it was padded beyond 15703 (though Conv1d is usually fine)
+            x = x[:, :, :15703]
+            
         x = self.encoder(x)
         # x shape: (batch_size, 64, 491)
         x = x.flatten(start_dim=1)  # Flatten to (batch_size, 64*491)
         return x
+
+
+class ViT1DEncoder(nn.Module):
+    """1D Vision Transformer Encoder for genomic data."""
+
+    def __init__(
+        self,
+        in_channels=2,
+        seq_length=15703,
+        patch_size=100,
+        hidden_dim=256,
+        num_layers=6,
+        num_heads=8,
+        mlp_dim=512,
+        dropout=0.1,
+    ):
+        super().__init__()
+        self.patch_size = patch_size
+        self.in_channels = in_channels
+
+        # Calculate number of patches
+        self.num_patches = (seq_length + patch_size - 1) // patch_size
+
+        # Patch projection: using Linear layer since input is (batch, C, N, P)
+        self.patch_embed = nn.Linear(in_channels * patch_size, hidden_dim)
+
+        # CLS token
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+
+        # Positional embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, hidden_dim))
+        self.pos_drop = nn.Dropout(p=dropout)
+
+        # Transformer blocks
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=mlp_dim,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True
+        )
+        self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.norm = nn.LayerNorm(hidden_dim)
+
+        self.features_dim = hidden_dim
+
+        # Initialize
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.cls_token, std=0.02)
+
+    def forward(self, x):
+        # x shape: (batch_size, C, N, P)
+        b, c, n, p = x.shape
+        
+        # Reshape to (batch_size, N, C*P)
+        x = x.permute(0, 2, 1, 3).reshape(b, n, c * p)
+        
+        x = self.patch_embed(x)  # (batch_size, num_patches, hidden_dim)
+
+        # Add CLS token
+        cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)  # (batch_size, num_patches + 1, hidden_dim)
+
+        # Add positional embedding
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
+
+        # Transformer blocks
+        x = self.blocks(x)
+        x = self.norm(x)
+
+        # Return CLS token feature
+        return x[:, 0]
 
 
 class GenomicSSL(nn.Module):
@@ -441,35 +523,44 @@ def run(
         gene_expression_path = os.path.join(base_path, "gene_expression_tensor_chrom_ordered.pkl")
         labels_path = os.path.join(base_path, "cancer_tags_tensor_chrom_ordered.pkl")
         
-        transform = get_genomic_train_transforms()
+        # Get genomic-specific settings
+        use_channels = cfg.data.get("use_channels", "both")
+        patch_size = cfg.model.get("patch_size") if cfg.model.type == "vit" else None
         
-        # Create full dataset
-        full_dataset = GenomicDataset(
+        # Create full dataset (raw data)
+        full_dataset_raw = GenomicDataset(
             methylation_path=methylation_path,
             gene_expression_path=gene_expression_path,
             labels_path=labels_path,
-            transform=transform,
-            num_crops=2,
+            transform=None,
+            patch_size=patch_size,
+            use_channels=use_channels,
         )
         
         # Split into train/val (80/20 split)
-        train_size = int(0.8 * len(full_dataset))
-        val_size = len(full_dataset) - train_size
-        train_dataset, val_dataset = torch.utils.data.random_split(
-            full_dataset, [train_size, val_size],
+        train_size = int(0.8 * len(full_dataset_raw))
+        val_size = len(full_dataset_raw) - train_size
+        train_indices, val_indices = torch.utils.data.random_split(
+            range(len(full_dataset_raw)), [train_size, val_size],
             generator=torch.Generator().manual_seed(cfg.meta.seed)
         )
         
-        # For validation, create a separate dataset without augmentations
-        val_dataset_clean = GenomicDataset(
-            methylation_path=methylation_path,
-            gene_expression_path=gene_expression_path,
-            labels_path=labels_path,
-            transform=get_genomic_val_transforms(),
-            num_crops=2,
+        # Create training subset with views
+        train_sampler = torch.utils.data.Subset(full_dataset_raw, train_indices)
+        train_dataset = ImageDataset(
+            train_sampler, 
+            transform=get_genomic_train_transforms(), 
+            num_crops=2
         )
-        val_indices = val_dataset.indices
-        val_dataset = torch.utils.data.Subset(val_dataset_clean, val_indices)
+        
+        # For validation, use single vector without augmentations
+        val_sampler = torch.utils.data.Subset(full_dataset_raw, val_indices)
+        val_dataset = ImageDataset(
+            val_sampler,
+            transform=get_genomic_val_transforms(),
+            num_crops=2 # We still use num_crops=2 to keep train_epoch happy, 
+                        # or update train_epoch to handle single view
+        )
     else:
         logger.info("Loading CIFAR-10 dataset...")
         transform = get_train_transforms()
@@ -517,8 +608,30 @@ def run(
     # Initialize model
     logger.info("Initializing model...")
     if use_genomic:
-        # Use 1D Conv encoder for genomic data
-        backbone = Conv1DEncoder(in_channels=2)
+        # Determine in_channels from config
+        use_channels = cfg.data.get("use_channels", "both")
+        in_channels = 2 if use_channels == "both" else 1
+        
+        if cfg.model.type == "vit":
+            # Use 1D Vision Transformer for genomic data
+            patch_size = cfg.model.get("patch_size", 100)
+            hidden_dim = cfg.model.get("hidden_dim", 256)
+            num_layers = cfg.model.get("num_layers", 6)
+            num_heads = cfg.model.get("num_heads", 8)
+            mlp_dim = cfg.model.get("mlp_dim", 512)
+            
+            backbone = ViT1DEncoder(
+                in_channels=in_channels,
+                seq_length=15703,
+                patch_size=patch_size,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                num_heads=num_heads,
+                mlp_dim=mlp_dim
+            )
+        else:
+            # Use 1D Conv encoder for genomic data
+            backbone = Conv1DEncoder(in_channels=in_channels)
         features_dim = backbone.features_dim
     elif cfg.model.type == "resnet":
         in_channels = 3

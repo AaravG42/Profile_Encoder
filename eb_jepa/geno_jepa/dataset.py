@@ -192,7 +192,8 @@ class GenomicDataset(torch.utils.data.Dataset):
         gene_expression_path,
         labels_path,
         transform=None,
-        num_crops=2,
+        patch_size=None,
+        use_channels="both",
     ):
         """
         Args:
@@ -200,7 +201,8 @@ class GenomicDataset(torch.utils.data.Dataset):
             gene_expression_path: Path to gene expression pickle file
             labels_path: Path to labels pickle file
             transform: Optional transform to be applied on a sample
-            num_crops: Number of augmented views to create
+            patch_size: Optional patch size to reshape the data into (C, N, p)
+            use_channels: Which channels to use ('both', 'gene', or 'meth')
         """
         import pickle
 
@@ -228,7 +230,8 @@ class GenomicDataset(torch.utils.data.Dataset):
         self.labels = self.labels.to(dtype=torch.long)
         
         self.transform = transform
-        self.num_crops = num_crops
+        self.patch_size = patch_size
+        self.use_channels = use_channels
         
         # Validate data dimensions
         assert len(self.methylation) == len(self.gene_expression) == len(self.labels), \
@@ -237,9 +240,9 @@ class GenomicDataset(torch.utils.data.Dataset):
             f"Expected 15703 features, got {self.methylation.shape[1]}"
         
         print(f"Loaded genomic dataset: {len(self)} samples")
-        print(f"  Methylation shape: {self.methylation.shape}")
-        print(f"  Gene expression shape: {self.gene_expression.shape}")
-        print(f"  Labels shape: {self.labels.shape}")
+        print(f"  Channels: {self.use_channels}")
+        if self.patch_size:
+            print(f"  Patching enabled: size={self.patch_size}")
         print(f"  Number of classes: {len(torch.unique(self.labels))}")
 
     def __len__(self):
@@ -248,21 +251,38 @@ class GenomicDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            views: List of augmented views (each view is a 2-channel 1D vector of shape (2, 15703))
+            vector: Genomic data (possibly reshaped)
             label: Class label
         """
-        # Get 1D data
-        meth = self.methylation[idx]  # Shape: (15703,)
-        gene = self.gene_expression[idx]  # Shape: (15703,)
+        # Select channels based on config
+        if self.use_channels == "both":
+            meth = self.methylation[idx]
+            gene = self.gene_expression[idx]
+            vector = torch.stack([gene, meth], dim=0)  # (2, 15703)
+        elif self.use_channels == "gene":
+            vector = self.gene_expression[idx].unsqueeze(0)  # (1, 15703)
+        elif self.use_channels == "meth":
+            vector = self.methylation[idx].unsqueeze(0)  # (1, 15703)
+        else:
+            raise ValueError(f"Invalid use_channels: {self.use_channels}")
+
         label = self.labels[idx]
         
-        # Stack into 2-channel 1D vector: (2, 15703)
-        vector = torch.stack([gene, meth], dim=0)
+        # Pad and reshape if patch_size is provided
+        if self.patch_size is not None:
+            c, l = vector.shape
+            num_patches = (l + self.patch_size - 1) // self.patch_size
+            padded_l = num_patches * self.patch_size
+            
+            if padded_l > l:
+                padding = torch.zeros((c, padded_l - l), dtype=vector.dtype, device=vector.device)
+                vector = torch.cat([vector, padding], dim=1)
+            
+            # Reshape to (C, N, P)
+            vector = vector.view(c, num_patches, self.patch_size)
         
-        # Apply augmentations to create multiple views
+        # Apply transform if provided
         if self.transform is not None:
-            views = [self.transform(vector.clone()) for _ in range(self.num_crops)]
-        else:
-            views = [vector for _ in range(self.num_crops)]
+            vector = self.transform(vector)
         
-        return views, label
+        return vector, label
