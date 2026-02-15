@@ -23,7 +23,7 @@ from tqdm import tqdm
 from umap import UMAP
 
 from geno_jepa.dataset import GenomicDataset, get_genomic_val_transforms
-from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder
+from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder, MLPEncoder
 
 
 def load_model_from_checkpoint(
@@ -48,6 +48,8 @@ def load_model_from_checkpoint(
             model_type = "conv1d"
         elif "vit" in checkpoint_path_str.lower():
             model_type = "vit"
+        elif "mlp" in checkpoint_path_str.lower():
+            model_type = "mlp"
         else:
             model_type = "resnet"
     
@@ -75,6 +77,14 @@ def load_model_from_checkpoint(
         )
         features_dim = backbone.features_dim
         print(f"Using ViT1DEncoder backbone (patch_size={patch_size}, features_dim={features_dim})")
+    elif model_type == "mlp":
+        backbone = MLPEncoder(
+            in_channels=in_channels,
+            seq_length=15703,
+            hidden_dim=hidden_dim,
+        )
+        features_dim = backbone.features_dim
+        print(f"Using MLPEncoder backbone (hidden_dim={hidden_dim}, features_dim={features_dim})")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     
@@ -367,7 +377,7 @@ def main(
         save_path: Path to save visualization (default: next to checkpoint)
         device: Device to use (cuda/cpu)
         batch_size: Batch size for feature extraction
-        model_type: Force model type ('conv1d', 'vit', 'resnet')
+        model_type: Force model type ('conv1d', 'vit', 'mlp', 'resnet')
         patch_size: Patch size for ViT or data reshaping
         use_channels: Which channels to use ('both', 'gene', or 'meth')
         hidden_dim: Hidden dimension for ViT

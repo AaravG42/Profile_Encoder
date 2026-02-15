@@ -14,14 +14,18 @@ data:
 
 model:
   # Backbone
-  type: vit       # conv1d (for genomic), vit (for genomic), resnet, vit_s, vit_b (for images)
+  type: mlp       # conv1d, mlp, vit (for genomic), resnet, vit_s, vit_b (for images)
   
   # ViT parameters (only used if type=vit)
-  patch_size: 190
-  hidden_dim: 256
-  num_layers: 6
-  num_heads: 8
-  mlp_dim: 512
+  # patch_size: 190
+  # hidden_dim: 256
+  # num_layers: 6
+  # num_heads: 8
+  # mlp_dim: 512
+
+  # MLP parameters (only used if type=mlp)
+  hidden_dim: 1024  # First hidden layer size (output is hidden_dim // 4)
+  dropout: 0.2      # Dropout rate
 
   # Projector
   use_projector: true

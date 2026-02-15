@@ -119,6 +119,40 @@ class Conv1DEncoder(nn.Module):
         return x
 
 
+class MLPEncoder(nn.Module):
+    """Simple MLP Encoder for genomic data."""
+
+    def __init__(self, in_channels=2, seq_length=15703, hidden_dim=1024, dropout=0.2):
+        super().__init__()
+        self.in_channels = in_channels
+        self.seq_length = seq_length
+        input_dim = in_channels * seq_length
+        
+        # Simple 3-layer MLP
+        self.mlp = nn.Sequential(
+            nn.Flatten(),
+            nn.Dropout(p=dropout),
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.BatchNorm1d(hidden_dim // 4),
+            nn.ReLU(),
+        )
+        self.features_dim = hidden_dim // 4
+        
+    def forward(self, x):
+        # Flatten to (batch_size, C * L)
+        x = x.flatten(start_dim=1)
+        x = self.mlp(x)
+        return x
+
+
 class ViT1DEncoder(nn.Module):
     """1D Vision Transformer Encoder for genomic data."""
 
@@ -629,8 +663,19 @@ def run(
                 num_heads=num_heads,
                 mlp_dim=mlp_dim
             )
+        elif cfg.model.type == "mlp":
+            # Use simple MLP encoder for genomic data
+            hidden_dim = cfg.model.get("hidden_dim", 1024)
+            dropout = cfg.model.get("dropout", 0.2)
+            
+            backbone = MLPEncoder(
+                in_channels=in_channels,
+                seq_length=15703,
+                hidden_dim=hidden_dim,
+                dropout=dropout
+            )
         else:
-            # Use 1D Conv encoder for genomic data
+            # Use 1D Conv encoder for genomic data (default)
             backbone = Conv1DEncoder(in_channels=in_channels)
         features_dim = backbone.features_dim
     elif cfg.model.type == "resnet":
