@@ -166,7 +166,6 @@ def get_genomic_train_transforms():
         [
             GaussianNoise(std=0.1, prob=0.8),
             RandomMasking(mask_ratio=0.15, prob=0.5),
-            ChannelDropout(prob=0.1),
         ]
     )
 

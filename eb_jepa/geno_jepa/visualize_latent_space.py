@@ -2,9 +2,10 @@
 Visualize the latent space of a trained Genomic JEPA model using UMAP.
 
 Usage:
-    python -m eb_jepa.geno_jepa.visualize_latent_space \
+    python -m geno_jepa.visualize_latent_space \
         --checkpoint_path /path/to/checkpoint.pth.tar \
-        --save_path latent_space_umap.png
+        --model_type conv1d \
+        --use_channels both \
 """
 
 import os
@@ -22,37 +23,60 @@ from tqdm import tqdm
 from umap import UMAP
 
 from geno_jepa.dataset import GenomicDataset, get_genomic_val_transforms
-from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder
+from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder
 
 
-def load_model_from_checkpoint(checkpoint_path, device="cuda"):
+def load_model_from_checkpoint(
+    checkpoint_path,
+    device="cuda",
+    model_type=None,
+    patch_size=100,
+    use_channels="both",
+    hidden_dim=256,
+    num_layers=6,
+    num_heads=8,
+    mlp_dim=512,
+):
     """Load model from checkpoint."""
     print(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
-    # Try to infer model type from checkpoint path
-    checkpoint_path_str = str(checkpoint_path)
-    if "conv1d" in checkpoint_path_str.lower():
-        model_type = "conv1d"
-    elif "vit" in checkpoint_path_str.lower():
-        model_type = "vit"
-    else:
-        model_type = "resnet"
+    # Try to infer model type from checkpoint path if not provided
+    if model_type is None:
+        checkpoint_path_str = str(checkpoint_path)
+        if "conv1d" in checkpoint_path_str.lower():
+            model_type = "conv1d"
+        elif "vit" in checkpoint_path_str.lower():
+            model_type = "vit"
+        else:
+            model_type = "resnet"
     
-    print(f"Inferred model type: {model_type}")
+    print(f"Using model type: {model_type}")
+    in_channels = 2 if use_channels == "both" else 1
     
     # Initialize backbone
     if model_type == "conv1d":
-        backbone = Conv1DEncoder(in_channels=2)
+        backbone = Conv1DEncoder(in_channels=in_channels)
         features_dim = backbone.features_dim
         print(f"Using Conv1DEncoder backbone (features_dim={features_dim})")
     elif model_type == "resnet":
-        backbone = ResNet18(in_channels=2)
+        backbone = ResNet18(in_channels=in_channels)
         features_dim = backbone.features_dim
-        print(f"Using ResNet18 backbone with 2 input channels")
+        print(f"Using ResNet18 backbone with {in_channels} input channels")
+    elif model_type == "vit":
+        backbone = ViT1DEncoder(
+            in_channels=in_channels,
+            seq_length=15703,
+            patch_size=patch_size,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            mlp_dim=mlp_dim,
+        )
+        features_dim = backbone.features_dim
+        print(f"Using ViT1DEncoder backbone (patch_size={patch_size}, features_dim={features_dim})")
     else:
-        # ViT backbone (not implemented in this simple loader)
-        raise NotImplementedError("ViT loading not yet implemented")
+        raise ValueError(f"Unknown model type: {model_type}")
     
     # Initialize model
     model = GenomicSSL(
@@ -79,7 +103,7 @@ def load_model_from_checkpoint(checkpoint_path, device="cuda"):
     return model
 
 
-def load_genomic_dataset(base_path):
+def load_genomic_dataset(base_path, patch_size=None, use_channels="both"):
     """Load the genomic dataset."""
     methylation_path = os.path.join(base_path, "methylation_tensor_chrom_ordered.pkl")
     gene_expression_path = os.path.join(base_path, "gene_expression_tensor_chrom_ordered.pkl")
@@ -90,7 +114,8 @@ def load_genomic_dataset(base_path):
         gene_expression_path=gene_expression_path,
         labels_path=labels_path,
         transform=get_genomic_val_transforms(),  # No augmentation for visualization
-        num_crops=1,  # Only need one view for visualization
+        patch_size=patch_size,
+        use_channels=use_channels,
     )
     
     return dataset
@@ -321,10 +346,17 @@ def plot_umap_density(embedding, labels, save_path):
 
 def main(
     checkpoint_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/Aarav_exps/eb_jepa/checkpoints/image_jepa/dev_2026-02-10_05-01/conv1d_vicreg_proj_bs32_ep150_ph2048_po2048_std1.0_cov80.0_seed42/latest.pth.tar",
-    data_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate",
+    data_path: str = "/home/aarav/data/chromosome_coordinate",
     save_path: str = None,
     device: str = "cuda",
     batch_size: int = 32,
+    model_type: str = None,
+    patch_size: int = 100,
+    use_channels: str = "both",
+    hidden_dim: int = 256,
+    num_layers: int = 6,
+    num_heads: int = 8,
+    mlp_dim: int = 512,
 ):
     """
     Visualize latent space of trained Genomic JEPA model.
@@ -335,6 +367,13 @@ def main(
         save_path: Path to save visualization (default: next to checkpoint)
         device: Device to use (cuda/cpu)
         batch_size: Batch size for feature extraction
+        model_type: Force model type ('conv1d', 'vit', 'resnet')
+        patch_size: Patch size for ViT or data reshaping
+        use_channels: Which channels to use ('both', 'gene', or 'meth')
+        hidden_dim: Hidden dimension for ViT
+        num_layers: Number of layers for ViT
+        num_heads: Number of heads for ViT
+        mlp_dim: MLP dimension for ViT
     """
     # Auto-detect save path if not provided
     if save_path is None:
@@ -348,10 +387,20 @@ def main(
         device = "cpu"
     
     # Load model
-    model = load_model_from_checkpoint(checkpoint_path, device=device)
+    model = load_model_from_checkpoint(
+        checkpoint_path,
+        device=device,
+        model_type=model_type,
+        patch_size=patch_size,
+        use_channels=use_channels,
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        mlp_dim=mlp_dim,
+    )
     
     # Load dataset
-    dataset = load_genomic_dataset(data_path)
+    dataset = load_genomic_dataset(data_path, patch_size=patch_size, use_channels=use_channels)
     
     # Extract latent representations
     features, labels = extract_latent_representations(

@@ -7,8 +7,8 @@ meta:
 
 data:
   use_genomic: true  # Use genomic data instead of CIFAR-10
-  use_channels: gene # 'both', 'gene', or 'meth'
-  base_path: /home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate
+  use_channels: both # 'both', 'gene', or 'meth'
+  base_path: /home/aarav/data/chromosome_coordinate
   batch_size: 128     # Smaller batch size for genomic data
   num_workers: 12
 
@@ -17,7 +17,7 @@ model:
   type: vit       # conv1d (for genomic), vit (for genomic), resnet, vit_s, vit_b (for images)
   
   # ViT parameters (only used if type=vit)
-  patch_size: 41
+  patch_size: 190
   hidden_dim: 256
   num_layers: 6
   num_heads: 8

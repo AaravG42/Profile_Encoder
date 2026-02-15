@@ -6,10 +6,10 @@ Supports 1D Convolutional encoder for genomic data, and ResNet/ViT backbones for
 
 Usage:
     # With YAML config:
-    python -m eb_jepa.geno_jepa.main --fname eb_jepa/geno_jepa/cfgs/genomic.yaml
+    python -m geno_jepa.main --fname geno_jepa/cfgs/genomic.yaml
 
     # With config + overrides:
-    python -m eb_jepa.geno_jepa.main --fname eb_jepa/geno_jepa/cfgs/genomic.yaml optim.epochs=50
+    python -m geno_jepa.main --fname geno_jepa/cfgs/genomic.yaml optim.epochs=50
 """
 
 import os
@@ -693,12 +693,8 @@ def run(
     # Initialize linear probe
     num_classes = 10  # Default for CIFAR-10
     if use_genomic:
-        # Get number of classes from dataset
-        if hasattr(train_dataset, 'dataset'):
-            # For Subset
-            num_classes = len(torch.unique(train_dataset.dataset.labels))
-        else:
-            num_classes = len(torch.unique(train_dataset.labels))
+        # Get number of classes from the raw genomic dataset
+        num_classes = len(torch.unique(full_dataset_raw.labels))
     linear_probe = LinearProbe(feature_dim=features_dim, num_classes=num_classes).to(device)
 
     # Mixed precision setup
