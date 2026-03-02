@@ -325,6 +325,10 @@ def get_exp_name(example_name: str, cfg) -> str:
             parts.append(f"cov{cfg.loss.cov_coeff}")
         elif cfg.loss.type == "bcs":
             parts.append(f"lmbd{cfg.loss.lmbd}")
+        if cfg.model.type == "vit":
+            parts.append(f"patch{cfg.model.patch_size}")
+        elif cfg.model.type == "mlp":
+            parts.append(f"mlp{cfg.model.hidden_dim}")
         return "_".join(str(p) for p in parts)
     elif example_name == "video_jepa":
         return (

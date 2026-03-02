@@ -14,18 +14,18 @@ data:
 
 model:
   # Backbone
-  type: mlp       # conv1d, mlp, vit (for genomic), resnet, vit_s, vit_b (for images)
+  type: vit      # conv1d, mlp, vit (for genomic), resnet, vit_s, vit_b (for images)
   
   # ViT parameters (only used if type=vit)
-  # patch_size: 190
-  # hidden_dim: 256
-  # num_layers: 6
-  # num_heads: 8
-  # mlp_dim: 512
+  patch_size: 383
+  hidden_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_dim: 512
 
-  # MLP parameters (only used if type=mlp)
-  hidden_dim: 4096  # First hidden layer size (output is hidden_dim // 4)
-  dropout: 0.2      # Dropout rate
+  # # MLP parameters (only used if type=mlp)
+  # hidden_dim: 1024  # First hidden layer size (output is hidden_dim // 4)
+  # dropout: 0.2      # Dropout rate
 
   # Projector
   use_projector: true
@@ -65,3 +65,14 @@ training:
 #   - Channel 1: DNA methylation (reshaped from 15703)
 # - Augmentations: Gaussian noise, random masking, channel dropout
 # - Output: Self-supervised representations for downstream cancer classification
+
+# --- Parameters used when running with --full-sweep
+# By default, only the parameters specified above are used
+sweep:
+  # Sweep grid for ViT architecture experiments
+  param_grid:
+    data.batch_size: [512]
+    optim.epochs: [100]
+    model.use_projector: [true]
+    model.type: [vit]
+    model.patch_size: [35, 37, 39, 41, 43, 45]
