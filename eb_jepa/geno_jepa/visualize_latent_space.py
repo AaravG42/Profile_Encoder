@@ -185,45 +185,75 @@ def get_cancer_type_names():
         "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/cancer_class_mapping.json",
     ]
     
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"Loading cancer type mapping from: {path}")
-            with open(path, "r") as f:
-                mapping = json.load(f)
-            # Convert string keys to integers
-            return {int(k): v for k, v in mapping.items()}
+    # for path in possible_paths:
+    #     if os.path.exists(path):
+    #         print(f"Loading cancer type mapping from: {path}")
+    #         with open(path, "r") as f:
+    #             mapping = json.load(f)
+    #         # Convert string keys to integers
+    #         return {int(k): v for k, v in mapping.items()}
     
     # Fallback: Use the known TCGA cancer types mapping
     print("Warning: cancer_class_mapping.json not found, using default TCGA mapping")
+    # cancer_mapping = {
+    #     0: "ACC",
+    #     1: "BLCA",
+    #     2: "BRCA",
+    #     3: "CESC",
+    #     4: "CHOL",
+    #     5: "COAD",
+    #     6: "DLBC",
+    #     7: "ESCA",
+    #     8: "GBM",
+    #     9: "HNSC",
+    #     10: "KICH",
+    #     11: "KIRC",
+    #     12: "KIRP",
+    #     13: "LAML",
+    #     14: "LGG",
+    #     15: "LIHC",
+    #     16: "LUAD",
+    #     17: "LUSC",
+    #     18: "MESO",
+    #     19: "OV",
+    #     20: "PAAD",
+    #     21: "PCPG",
+    #     22: "PRAD",
+    #     23: "READ",
+    #     24: "SARC",
+    #     25: "SKCM",
+    #     26: "STAD",
+    #     27: "TGCT",
+    # }
     cancer_mapping = {
         0: "ACC",
         1: "BLCA",
         2: "BRCA",
         3: "CESC",
-        4: "CHOL",
-        5: "COAD",
-        6: "DLBC",
-        7: "ESCA",
-        8: "GBM",
-        9: "HNSC",
-        10: "KICH",
-        11: "KIRC",
-        12: "KIRP",
-        13: "LAML",
-        14: "LGG",
-        15: "LIHC",
-        16: "LUAD",
-        17: "LUSC",
-        18: "MESO",
-        19: "OV",
-        20: "PAAD",
-        21: "PCPG",
-        22: "PRAD",
-        23: "READ",
-        24: "SARC",
-        25: "SKCM",
-        26: "STAD",
-        27: "TGCT",
+        4: "COAD",
+        5: "ESCA",
+        6: "GBM",
+        7: "HNSC",
+        8: "KICH",
+        9: "KIRC",
+        10: "KIRP",
+        11: "LGG",
+        12: "LIHC",
+        13: "LUAD",
+        14: "LUSC",
+        15: "MESO",
+        16: "OV",
+        17: "PAAD",
+        18: "PCPG",
+        19: "PRAD",
+        20: "READ",
+        21: "SARC",
+        22: "SKCM",
+        23: "STAD",
+        24: "TGCT",
+        25: "THCA",
+        26: "UCEC",
+        27: "UCS"
     }
     return cancer_mapping
 

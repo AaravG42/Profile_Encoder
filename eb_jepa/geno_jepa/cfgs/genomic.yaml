@@ -8,7 +8,7 @@ meta:
 data:
   use_genomic: true  # Use genomic data instead of CIFAR-10
   use_channels: both # 'both', 'gene', or 'meth'
-  base_path: /home/aarav/data/chromosome_coordinate
+  base_path: /data/TCGA_cleaned
   batch_size: 128     # Smaller batch size for genomic data
   num_workers: 12
 

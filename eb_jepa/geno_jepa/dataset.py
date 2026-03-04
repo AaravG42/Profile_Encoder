@@ -179,17 +179,17 @@ class GenomicDataset(torch.utils.data.Dataset):
     """
     Dataset for genomic data (gene expression + DNA methylation).
     
-    Loads 1D tensors of shape (15703,) and keeps them as 1D vectors
-    of shape (2, 15703) where:
-    - Channel 0: Gene expression
-    - Channel 1: DNA methylation
+    Loads preprocessed DataFrames where samples are columns and genes are rows.
+    Automatically aligns both datasets by common samples and genes.
+    
+    Returns samples as tensors of shape (2, N_genes) if both channels used.
     """
 
     def __init__(
         self,
         methylation_path,
         gene_expression_path,
-        labels_path,
+        labels_path=None,  # Not used anymore as labels are in the DataFrames
         transform=None,
         patch_size=None,
         use_channels="both",
@@ -198,54 +198,63 @@ class GenomicDataset(torch.utils.data.Dataset):
         Args:
             methylation_path: Path to methylation pickle file
             gene_expression_path: Path to gene expression pickle file
-            labels_path: Path to labels pickle file
+            labels_path: (Legacy) Not used, labels are extracted from DataFrames
             transform: Optional transform to be applied on a sample
             patch_size: Optional patch size to reshape the data into (C, N, p)
             use_channels: Which channels to use ('both', 'gene', or 'meth')
         """
-        import pickle
+        import pandas as pd
+        import numpy as np
 
         # Load data
-        with open(methylation_path, "rb") as f:
-            self.methylation = pickle.load(f)
+        print(f"Loading genomic data from:\n  {gene_expression_path}\n  {methylation_path}")
+        df_gene = pd.read_pickle(gene_expression_path)
+        df_meth = pd.read_pickle(methylation_path)
+
+        # Set gene names as index (first column)
+        df_gene.set_index(df_gene.columns[0], inplace=True)
+        df_meth.set_index(df_meth.columns[0], inplace=True)
+
+        # 1. Align Samples (Columns)
+        common_samples = df_gene.columns.intersection(df_meth.columns)
+        print(f"Aligning {len(common_samples)} common samples...")
         
-        with open(gene_expression_path, "rb") as f:
-            self.gene_expression = pickle.load(f)
-        
-        try:
-            with open(labels_path, "rb") as f:
-                self.labels = pickle.load(f)
-            
-            # Handle one-hot encoded labels
-            if self.labels.dim() > 1 and self.labels.shape[1] > 1:
-                self.labels = torch.argmax(self.labels, dim=1)
-        except FileNotFoundError:
-            print(f"Labels file not found at {labels_path}, creating dummy labels.")
-            self.labels = torch.zeros(len(self.methylation), dtype=torch.long)
-        
-        # Convert to float32 if needed
-        self.methylation = self.methylation.to(dtype=torch.float32)
-        self.gene_expression = self.gene_expression.to(dtype=torch.float32)
-        self.labels = self.labels.to(dtype=torch.long)
+        # 2. Align Genes (Rows) - exclude 'Cancer_Type' row if it exists
+        # In this specific dataset format, row 0 (now index 'Cancer_Type') is the labels
+        common_genes = df_gene.index.intersection(df_meth.index).drop('Cancer_Type', errors='ignore')
+        print(f"Aligning {len(common_genes)} common genes...")
+
+        # Extract labels from 'Cancer_Type' row
+        labels_raw = df_gene.loc['Cancer_Type', common_samples]
+        label_map = {name: i for i, name in enumerate(sorted(labels_raw.unique()))}
+        self.label_names = sorted(labels_raw.unique())
+        self.labels = torch.tensor([label_map[l] for l in labels_raw], dtype=torch.long)
+
+        # Extract data and convert to tensors (Samples, Genes)
+        self.gene_expression = torch.tensor(
+            df_gene.loc[common_genes, common_samples].values.astype(np.float32).T
+        )
+        self.methylation = torch.tensor(
+            df_meth.loc[common_genes, common_samples].values.astype(np.float32).T
+        )
         
         self.transform = transform
         self.patch_size = patch_size
         self.use_channels = use_channels
         
         # Validate data dimensions
-        assert len(self.methylation) == len(self.gene_expression) == len(self.labels), \
+        assert self.gene_expression.shape[0] == self.methylation.shape[0] == len(self.labels), \
             "Data length mismatch"
-        assert self.methylation.shape[1] == 15703, \
-            f"Expected 15703 features, got {self.methylation.shape[1]}"
         
         print(f"Loaded genomic dataset: {len(self)} samples")
+        print(f"  Genes: {len(common_genes)}")
         print(f"  Channels: {self.use_channels}")
         if self.patch_size:
             print(f"  Patching enabled: size={self.patch_size}")
         print(f"  Number of classes: {len(torch.unique(self.labels))}")
 
     def __len__(self):
-        return len(self.methylation)
+        return self.gene_expression.shape[0]
 
     def __getitem__(self, idx):
         """
@@ -257,11 +266,11 @@ class GenomicDataset(torch.utils.data.Dataset):
         if self.use_channels == "both":
             meth = self.methylation[idx]
             gene = self.gene_expression[idx]
-            vector = torch.stack([gene, meth], dim=0)  # (2, 15703)
+            vector = torch.stack([gene, meth], dim=0)  # (2, 17819)
         elif self.use_channels == "gene":
-            vector = self.gene_expression[idx].unsqueeze(0)  # (1, 15703)
+            vector = self.gene_expression[idx].unsqueeze(0)  # (1, 17819)
         elif self.use_channels == "meth":
-            vector = self.methylation[idx].unsqueeze(0)  # (1, 15703)
+            vector = self.methylation[idx].unsqueeze(0)  # (1, 17819)
         else:
             raise ValueError(f"Invalid use_channels: {self.use_channels}")
 
