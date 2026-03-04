@@ -116,14 +116,13 @@ def load_model_from_checkpoint(
 
 def load_genomic_dataset(base_path, patch_size=None, use_channels="both"):
     """Load the genomic dataset."""
-    methylation_path = os.path.join(base_path, "methylation_tensor_chrom_ordered.pkl")
-    gene_expression_path = os.path.join(base_path, "gene_expression_tensor_chrom_ordered.pkl")
-    labels_path = os.path.join(base_path, "cancer_tags_tensor_chrom_ordered.pkl")
+    # Use the new preprocessed data files
+    methylation_path = os.path.join(base_path, "Final_Preprocessed_DNA_Methylation_UCSC_PCA_CancerTags.pkl")
+    gene_expression_path = os.path.join(base_path, "Final_Preprocessed_Gene_Expression_TCGA_CancerTags.pkl")
     
     dataset = GenomicDataset(
         methylation_path=methylation_path,
         gene_expression_path=gene_expression_path,
-        labels_path=labels_path,
         transform=get_genomic_val_transforms(),  # No augmentation for visualization
         patch_size=patch_size,
         use_channels=use_channels,
@@ -174,94 +173,21 @@ def extract_latent_representations(model, dataset, device="cuda", batch_size=32)
     return all_features, all_labels
 
 
-def get_cancer_type_names():
-    """Get cancer type names mapping from the dataset."""
-    # Try to load from cancer_class_mapping.json
-    import json
-    
-    # Try multiple possible locations
-    possible_paths = [
-        "/home/dmlab/Devendra/cancer_class_mapping.json",
-        "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/cancer_class_mapping.json",
-        "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/cancer_class_mapping.json",
-    ]
-    
-    # for path in possible_paths:
-    #     if os.path.exists(path):
-    #         print(f"Loading cancer type mapping from: {path}")
-    #         with open(path, "r") as f:
-    #             mapping = json.load(f)
-    #         # Convert string keys to integers
-    #         return {int(k): v for k, v in mapping.items()}
-    
-    # Fallback: Use the known TCGA cancer types mapping
-    print("Warning: cancer_class_mapping.json not found, using default TCGA mapping")
-    # cancer_mapping = {
-    #     0: "ACC",
-    #     1: "BLCA",
-    #     2: "BRCA",
-    #     3: "CESC",
-    #     4: "CHOL",
-    #     5: "COAD",
-    #     6: "DLBC",
-    #     7: "ESCA",
-    #     8: "GBM",
-    #     9: "HNSC",
-    #     10: "KICH",
-    #     11: "KIRC",
-    #     12: "KIRP",
-    #     13: "LAML",
-    #     14: "LGG",
-    #     15: "LIHC",
-    #     16: "LUAD",
-    #     17: "LUSC",
-    #     18: "MESO",
-    #     19: "OV",
-    #     20: "PAAD",
-    #     21: "PCPG",
-    #     22: "PRAD",
-    #     23: "READ",
-    #     24: "SARC",
-    #     25: "SKCM",
-    #     26: "STAD",
-    #     27: "TGCT",
-    # }
-    cancer_mapping = {
-    0: "ACC",
-    1: "BLCA",
-    2: "BRCA",
-    3: "CESC",
-    4: "COAD",
-    5: "ESCA",
-    6: "GBM",
-    7: "HNSC",
-    8: "KICH",
-    9: "KIRC",
-    10: "KIRP",
-    11: "LGG",
-    12: "LIHC",
-    13: "LUAD",
-    14: "LUSC",
-    15: "MESO",
-    16: "OV",
-    17: "PAAD",
-    18: "PCPG",
-    19: "PRAD",
-    20: "READ",
-    21: "SARC",
-    22: "SKCM",
-    23: "STAD",
-    24: "TGCT",
-    25: "THCA",
-    26: "UCEC",
-    27: "UCS"
-    }
-    return cancer_mapping
 
 
-def plot_umap_3d(features, labels, save_path="latent_space_umap_3d.html", title="3D Latent Space UMAP"):
-    """Create interactive 3D UMAP visualization using Plotly."""
+
+def plot_umap_3d(features, labels, label_names, save_path="latent_space_umap_3d.html", title="3D Latent Space UMAP"):
+    """Create interactive 3D UMAP visualization using Plotly.
+    
+    Args:
+        features: Feature embeddings from the model
+        labels: Integer label indices
+        label_names: List of cancer type names corresponding to label indices
+        save_path: Path to save the visualization
+        title: Title for the plot
+    """
     print("Computing 3D UMAP projection...")
+    print(f"Number of classes: {len(label_names)}")
     
     # Apply UMAP with 3 components
     reducer = UMAP(
@@ -276,11 +202,8 @@ def plot_umap_3d(features, labels, save_path="latent_space_umap_3d.html", title=
     
     print(f"UMAP embedding shape: {embedding.shape}")
     
-    # Get cancer type names
-    cancer_mapping = get_cancer_type_names()
-    
     # Create labels array with cancer names
-    cancer_names = [cancer_mapping.get(label, f"Class {label}") for label in labels]
+    cancer_names = [label_names[label] if label < len(label_names) else f"Class {label}" for label in labels]
     
     # Create a color mapping for each unique label
     unique_labels = sorted(np.unique(labels))
@@ -345,12 +268,12 @@ def plot_umap_3d(features, labels, save_path="latent_space_umap_3d.html", title=
     fig.show()
     
     # Also create a version with cancer type colors (one trace per cancer type)
-    plot_umap_3d_by_cancer(embedding, labels, cancer_mapping, 
+    plot_umap_3d_by_cancer(embedding, labels, label_names, 
                            save_path.parent / f"{save_path.stem}_by_cancer.html", 
                            title)
 
 
-def plot_umap_3d_by_cancer(embedding, labels, cancer_mapping, save_path, title):
+def plot_umap_3d_by_cancer(embedding, labels, label_names, save_path, title):
     """Create 3D UMAP with separate traces for each cancer type for better legend."""
     print("Creating cancer-type colored 3D UMAP...")
     
@@ -367,7 +290,7 @@ def plot_umap_3d_by_cancer(embedding, labels, cancer_mapping, save_path, title):
     
     for idx, label in enumerate(unique_labels):
         mask = labels == label
-        cancer_name = cancer_mapping.get(label, f"Class {label}")
+        cancer_name = label_names[label] if label < len(label_names) else f"Class {label}"
         
         fig.add_trace(go.Scatter3d(
             x=embedding[mask, 0],
@@ -428,7 +351,7 @@ def plot_umap_3d_by_cancer(embedding, labels, cancer_mapping, save_path, title):
 
 def main(
     checkpoint_path: str = "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/Aarav_exps/eb_jepa/checkpoints/image_jepa/dev_2026-02-10_05-01/conv1d_vicreg_proj_bs32_ep150_ph2048_po2048_std1.0_cov80.0_seed42/latest.pth.tar",
-    data_path: str = "/home/aarav/data/chromosome_coordinate",
+    data_path: str = "/data/TCGA_cleaned",
     save_path: str = None,
     device: str = "cuda",
     batch_size: int = 32,
@@ -489,9 +412,15 @@ def main(
         model, dataset, device=device, batch_size=batch_size
     )
     
+    # Get label names from the dataset
+    label_names = dataset.label_names
+    print(f"\nDetected {len(label_names)} cancer types:")
+    for i, name in enumerate(label_names):
+        print(f"  {i}: {name}")
+    
     # Save features and labels for future use
     features_save_path = Path(save_path).parent / "latent_features_3d.npz"
-    np.savez(features_save_path, features=features, labels=labels)
+    np.savez(features_save_path, features=features, labels=labels, label_names=label_names)
     print(f"Features saved to: {features_save_path}")
     
     # Create 3D UMAP visualization
@@ -499,7 +428,7 @@ def main(
     epoch_name = Path(checkpoint_path).stem
     title = f"3D Latent Space UMAP - {checkpoint_name} ({epoch_name})"
     
-    plot_umap_3d(features, labels, save_path=save_path, title=title)
+    plot_umap_3d(features, labels, label_names, save_path=save_path, title=title)
     
     print("\n3D Visualization complete!")
     print(f"Main plot: {save_path}")

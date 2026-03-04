@@ -81,7 +81,7 @@ class ResNet18(nn.Module):
 class Conv1DEncoder(nn.Module):
     """1D Convolutional Encoder for genomic data."""
 
-    def __init__(self, in_channels=2):
+    def __init__(self, in_channels=2, latent_dim=512):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Dropout(p=0.1),
@@ -100,29 +100,32 @@ class Conv1DEncoder(nn.Module):
             nn.Conv1d(64, 64, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm1d(64), nn.LeakyReLU(),
         )
-        # Calculate output size: 15703 -> 7852 -> 3926 -> 1963 -> 982 -> 491
-        # Output: (batch_size, 64, 491)
-        self.features_dim = 64 * 491  # Flattened feature dimension
-        
+        # Calculate output size: 17819 -> 8910 -> 4455 -> 2228 -> 1114 -> 557
+        # Output: (batch_size, 64, 557)
+        self.flatten_size = 64 * 557  # Flattened feature dimension
+        self.fc = nn.Linear(self.flatten_size, latent_dim)
+        self.features_dim = latent_dim
+
     def forward(self, x):
-        # x shape can be (batch_size, C, L) or (batch_size, C, N, P)
-        if x.dim() == 4:
-            # Flatten patches back to 1D if it was reshaped in dataset
-            b, c, n, p = x.shape
-            x = x.reshape(b, c, n * p)
-            # Clip if it was padded beyond 15703 (though Conv1d is usually fine)
-            x = x[:, :, :15703]
-            
+        # # x shape can be (batch_size, C, L) or (batch_size, C, N, P)
+        # if x.dim() == 4:
+        #     # Flatten patches back to 1D if it was reshaped in dataset
+        #     b, c, n, p = x.shape
+        #     x = x.reshape(b, c, n * p)
+        #     # Clip if it was padded beyond 17819 (though Conv1d is usually fine)
+        #     x = x[:, :, :17819]
+        assert x.dim() == 3, f"Expected input shape (batch_size, C, L), got {x.shape}"
         x = self.encoder(x)
-        # x shape: (batch_size, 64, 491)
-        x = x.flatten(start_dim=1)  # Flatten to (batch_size, 64*491)
+        # x shape: (batch_size, 64, 557)
+        x = x.flatten(start_dim=1)  # Flatten to (batch_size, 64*557)
+        x = self.fc(x)              # Compress to latent_dim
         return x
 
 
 class MLPEncoder(nn.Module):
     """Simple MLP Encoder for genomic data."""
 
-    def __init__(self, in_channels=2, seq_length=15703, hidden_dim=1024, dropout=0.2):
+    def __init__(self, in_channels=2, seq_length=17819, hidden_dim=1024, dropout=0.2):
         super().__init__()
         self.in_channels = in_channels
         self.seq_length = seq_length
@@ -159,7 +162,7 @@ class ViT1DEncoder(nn.Module):
     def __init__(
         self,
         in_channels=2,
-        seq_length=15703,
+        seq_length=17819,
         patch_size=100,
         hidden_dim=256,
         num_layers=6,
@@ -656,7 +659,7 @@ def run(
             
             backbone = ViT1DEncoder(
                 in_channels=in_channels,
-                seq_length=15703,
+                seq_length=17819,
                 patch_size=patch_size,
                 hidden_dim=hidden_dim,
                 num_layers=num_layers,
@@ -670,7 +673,7 @@ def run(
             
             backbone = MLPEncoder(
                 in_channels=in_channels,
-                seq_length=15703,
+                seq_length=17819,
                 hidden_dim=hidden_dim,
                 dropout=dropout
             )
