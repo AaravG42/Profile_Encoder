@@ -309,17 +309,21 @@ def get_exp_name(example_name: str, cfg) -> str:
     """Get short experiment name encoding key hyperparameters (seed appended separately)."""
     if example_name == "image_jepa":
         proj = "proj" if cfg.model.use_projector else "noproj"
+        pred = "pred" if cfg.model.use_predictor else "nopred"
         parts = [
             cfg.data.use_channels,
             cfg.model.type,
             cfg.loss.type,
             proj,
+            pred,
             f"bs{cfg.data.batch_size}",
             f"ep{cfg.optim.epochs}",
         ]
         if cfg.model.use_projector:
             parts.append(f"ph{cfg.model.proj_hidden_dim}")
             parts.append(f"po{cfg.model.proj_output_dim}")
+        if cfg.model.use_predictor:
+            parts.append(f"pr{cfg.model.pred_hidden_dim}")
         if cfg.loss.type == "vicreg":
             parts.append(f"std{cfg.loss.std_coeff}")
             parts.append(f"cov{cfg.loss.cov_coeff}")
@@ -331,6 +335,7 @@ def get_exp_name(example_name: str, cfg) -> str:
             parts.append(f"mlp{cfg.model.hidden_dim}")
         # elif cfg.model.type == "conv1d":
             # parts.append(f"latent{cfg.model.latent_dim}")
+        parts.append(f"mask{cfg.data.mask_ratio}")
         return "_".join(str(p) for p in parts)
     elif example_name == "video_jepa":
         return (

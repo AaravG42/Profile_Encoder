@@ -177,7 +177,12 @@ class GenomicSSL(nn.Module):
     """Genomic Self-Supervised Learning model implementation."""
 
     def __init__(
-        self, backbone, features_dim, proj_hidden_dim=2048, proj_output_dim=2048
+        self, 
+        backbone, 
+        features_dim, 
+        proj_hidden_dim=2048, 
+        proj_output_dim=2048,
+        predictor=None
     ):
         super().__init__()
         self.backbone = backbone
@@ -193,10 +198,32 @@ class GenomicSSL(nn.Module):
             nn.ReLU(),
             nn.Linear(proj_hidden_dim, proj_output_dim),
         )
+        
+        # Predictor (optional)
+        self.predictor = predictor
 
     def forward(self, x):
         features = self.backbone(x)
         projections = self.projector(features)
         return features, projections
+
+
+class Predictor(nn.Module):
+    """Predictor network for JEPA-style training."""
+
+    def __init__(self, input_dim, hidden_dim=None):
+        super().__init__()
+        if hidden_dim is None:
+            hidden_dim = input_dim
+            
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim)
+        )
+
+    def forward(self, x):
+        return self.net(x)
 
 

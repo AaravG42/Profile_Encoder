@@ -137,13 +137,15 @@ class RandomMasking:
 
     def __init__(self, mask_ratio=0.15, prob=0.5):
         self.mask_ratio = mask_ratio
-        self.prob = prob
+        # self.prob = prob
 
     def __call__(self, x):
-        if torch.rand(1) < self.prob:
-            mask = torch.rand_like(x) > self.mask_ratio
-            return x * mask
-        return x
+        # if torch.rand(1) < self.prob:
+        #     mask = torch.rand_like(x) > self.mask_ratio
+        #     return x * mask
+        mask = torch.rand_like(x) > self.mask_ratio
+        return x * mask
+        # return x
 
 
 class ChannelDropout:
@@ -160,12 +162,12 @@ class ChannelDropout:
         return x
 
 
-def get_genomic_train_transforms():
+def get_genomic_train_transforms(mask_ratio=0.30):
     """Get training transforms for genomic self-supervised learning."""
     return transforms.Compose(
         [
             GaussianNoise(std=0.1, prob=0.8),
-            RandomMasking(mask_ratio=0.15, prob=0.5),
+            RandomMasking(mask_ratio=mask_ratio, prob=0.5),
         ]
     )
 

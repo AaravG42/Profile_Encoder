@@ -64,6 +64,7 @@ from geno_jepa.models import (
     ViT1DEncoder,
     MLPEncoder,
     GenomicSSL,
+    Predictor,
 )
 from geno_jepa.visualize_latent_space import (
     extract_latent_representations,
@@ -241,6 +242,7 @@ def train_epoch(
     total_linear_loss = 0
     linear_correct = 0
     linear_total = 0
+    total_pred_loss = 0
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch}", disable=tqdm_silent)
     for batch_idx, (views, target) in enumerate(pbar):
@@ -254,6 +256,13 @@ def train_epoch(
             _, z2 = model(view2)
             loss_dict = loss_fn(z1, z2)
             loss = loss_dict["loss"]
+            
+            # Use predictor if it exists on the model
+            if model.predictor is not None:
+                z1_pred = model.predictor(z1)
+                pred_loss = F.mse_loss(z1_pred, z2.detach())
+            else:
+                pred_loss = torch.tensor(0.0, device=device)
 
         with torch.no_grad():
             features_frozen = features.detach().float()
@@ -264,7 +273,7 @@ def train_epoch(
         _, predicted = linear_outputs.max(1)
         linear_correct_batch = predicted.eq(target).sum().item()
 
-        total_loss_batch = loss + linear_loss
+        total_loss_batch = loss + linear_loss + pred_loss
 
         optimizer.zero_grad()
         scaler.scale(total_loss_batch).backward()
@@ -277,19 +286,22 @@ def train_epoch(
                 loss_totals[key] = 0
             loss_totals[key] += value.item()
         total_linear_loss += linear_loss.item()
+        total_pred_loss += pred_loss.item()
 
         # Update linear probe accuracy (pre-computed under autocast)
         linear_total += target.size(0)
         linear_correct += linear_correct_batch
 
         # Update progress bar
-        pbar.set_postfix(
-            {
-                "Loss": f"{loss.item():.4f}",
-                "Linear": f"{linear_loss.item():.4f}",
-                "Acc": f"{100.*linear_correct/linear_total:.2f}%",
-            }
-        )
+        status_dict = {
+            "Loss": f"{loss.item():.4f}",
+            "Linear": f"{linear_loss.item():.4f}",
+        }
+        if model.predictor is not None:
+            status_dict["Pred"] = f"{pred_loss.item():.4f}"
+        status_dict["Acc"] = f"{100.*linear_correct/linear_total:.2f}%"
+        
+        pbar.set_postfix(status_dict)
 
     # Update learning rate
     scheduler.step(epoch)
@@ -299,6 +311,7 @@ def train_epoch(
     metrics = {key: total / num_batches for key, total in loss_totals.items()}
     metrics["linear_loss"] = total_linear_loss / num_batches
     metrics["linear_acc"] = 100.0 * linear_correct / linear_total
+    metrics["predictor_loss"] = total_pred_loss / num_batches
 
     return metrics
 
@@ -395,7 +408,7 @@ def run(
         train_sampler = torch.utils.data.Subset(full_dataset_raw, train_indices)
         train_dataset = ImageDataset(
             train_sampler, 
-            transform=get_genomic_train_transforms(), 
+            transform=get_genomic_train_transforms(mask_ratio=cfg.data.mask_ratio), 
             num_crops=2
         )
         
@@ -530,6 +543,15 @@ def run(
         proj_output_dim=cfg.model.proj_output_dim,
     )
 
+    if cfg.model.get("use_predictor", False):
+        pred_hidden_dim = cfg.model.get("pred_hidden_dim", cfg.model.proj_output_dim)
+        model.predictor = Predictor(
+            input_dim=cfg.model.proj_output_dim, 
+            hidden_dim=pred_hidden_dim
+        )
+    else:
+        model.predictor = None
+
     if not cfg.model.use_projector:
         model.projector = nn.Identity()
 
@@ -542,7 +564,19 @@ def run(
         if cfg.model.use_projector
         else 0
     )
-    log_model_info(model, {"encoder": encoder_params, "projector": projector_params})
+    predictor_params = (
+        sum(p.numel() for p in model.predictor.parameters())
+        if model.predictor is not None
+        else 0
+    )
+    log_model_info(
+        model, 
+        {
+            "encoder": encoder_params, 
+            "projector": projector_params,
+            "predictor": predictor_params
+        }
+    )
 
     # Log configuration
     log_config(cfg)
