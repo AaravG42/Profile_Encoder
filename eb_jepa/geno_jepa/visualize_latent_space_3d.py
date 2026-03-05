@@ -24,7 +24,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from geno_jepa.dataset import GenomicDataset, get_genomic_val_transforms
-from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder, MLPEncoder
+from geno_jepa.models import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder, MLPEncoder
 
 
 def load_model_from_checkpoint(
@@ -173,7 +173,30 @@ def extract_latent_representations(model, dataset, device="cuda", batch_size=32)
     return all_features, all_labels
 
 
-
+def plot_umap_3d_colored(features, labels, label_names, save_path, title="3D Latent Space UMAP"):
+    """Create 3D UMAP visualization with class colors (separate traces per class).
+    
+    Args:
+        features: Feature embeddings from the model
+        labels: Integer label indices
+        label_names: List of cancer type names corresponding to label indices
+        save_path: Path to save the visualization
+        title: Title for the plot
+    """
+    print("Computing 3D UMAP projection...")
+    
+    # Apply UMAP with 3 components
+    reducer = UMAP(
+        n_neighbors=15,
+        min_dist=0.1,
+        n_components=3,
+        metric="euclidean",
+        random_state=42,
+    )
+    embedding = reducer.fit_transform(features)
+    
+    # Call the by_cancer version with the computed embedding
+    plot_umap_3d_by_cancer(embedding, labels, label_names, save_path=save_path, title=title)
 
 
 def plot_umap_3d(features, labels, label_names, save_path="latent_space_umap_3d.html", title="3D Latent Space UMAP"):

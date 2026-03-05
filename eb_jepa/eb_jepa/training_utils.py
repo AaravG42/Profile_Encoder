@@ -329,6 +329,8 @@ def get_exp_name(example_name: str, cfg) -> str:
             parts.append(f"patch{cfg.model.patch_size}")
         elif cfg.model.type == "mlp":
             parts.append(f"mlp{cfg.model.hidden_dim}")
+        # elif cfg.model.type == "conv1d":
+            # parts.append(f"latent{cfg.model.latent_dim}")
         return "_".join(str(p) for p in parts)
     elif example_name == "video_jepa":
         return (

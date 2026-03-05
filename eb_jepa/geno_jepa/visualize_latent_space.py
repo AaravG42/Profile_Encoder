@@ -23,7 +23,7 @@ from tqdm import tqdm
 from umap import UMAP
 
 from geno_jepa.dataset import GenomicDataset, get_genomic_val_transforms
-from geno_jepa.main import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder, MLPEncoder
+from geno_jepa.models import GenomicSSL, ResNet18, Conv1DEncoder, ViT1DEncoder, MLPEncoder
 
 
 def load_model_from_checkpoint(

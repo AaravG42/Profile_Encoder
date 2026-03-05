@@ -16,6 +16,9 @@ model:
   # Backbone
   type: mlp       # conv1d, mlp, vit (for genomic), resnet, vit_s, vit_b (for images)
   
+  # Conv 1D parameters
+  latent_dim: 4096
+
   # ViT parameters (only used if type=vit)
   # patch_size: 190
   # hidden_dim: 256
@@ -23,17 +26,17 @@ model:
   # num_heads: 8
   # mlp_dim: 512
 
-  # MLP parameters (only used if type=mlp)
+  # # MLP parameters (only used if type=mlp)
   hidden_dim: 4096  # First hidden layer size (output is hidden_dim // 4)
   dropout: 0.2      # Dropout rate
 
   # Projector
   use_projector: true
-  proj_hidden_dim: 2048
-  proj_output_dim: 2048
+  proj_hidden_dim: 64
+  proj_output_dim: 64
 
 loss:
-  type: bcs       # vicreg or bcs
+  type: vicreg       # vicreg or bcs
   # VICReg loss weights
   std_coeff: 1.0
   cov_coeff: 80.0

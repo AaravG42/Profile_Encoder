@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import fire
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -57,206 +58,20 @@ from geno_jepa.dataset import (
     get_genomic_val_transforms,
 )
 from geno_jepa.eval import LinearProbe, evaluate_linear_probe
+from geno_jepa.models import (
+    ResNet18,
+    Conv1DEncoder,
+    ViT1DEncoder,
+    MLPEncoder,
+    GenomicSSL,
+)
+from geno_jepa.visualize_latent_space import (
+    extract_latent_representations,
+    plot_umap as plot_umap_2d,
+)
+from geno_jepa.visualize_latent_space_3d import plot_umap_3d_colored as plot_umap_3d
 
 logger = get_logger(__name__)
-
-
-class ResNet18(nn.Module):
-    """ResNet-18 backbone implementation."""
-
-    def __init__(self, in_channels=3):
-        super().__init__()
-        self.backbone = torchvision.models.resnet18()
-        self.backbone.fc = nn.Identity()  # Remove final classification layer
-        self.backbone.conv1 = nn.Conv2d(
-            in_channels, 64, kernel_size=3, stride=1, padding=2, bias=False
-        )
-        self.backbone.maxpool = nn.Identity()
-        self.features_dim = 512
-
-    def forward(self, x):
-        return self.backbone(x)
-
-
-class Conv1DEncoder(nn.Module):
-    """1D Convolutional Encoder for genomic data."""
-
-    def __init__(self, in_channels=2, latent_dim=512):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Dropout(p=0.1),
-            nn.Conv1d(in_channels, 16, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(16), nn.LeakyReLU(),
-            
-            nn.Conv1d(16, 32, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(32), nn.LeakyReLU(),
-            
-            nn.Conv1d(32, 64, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(64), nn.LeakyReLU(),
-            
-            nn.Conv1d(64, 64, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(64), nn.LeakyReLU(),
-
-            nn.Conv1d(64, 64, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(64), nn.LeakyReLU(),
-        )
-        # Calculate output size: 17819 -> 8910 -> 4455 -> 2228 -> 1114 -> 557
-        # Output: (batch_size, 64, 557)
-        self.flatten_size = 64 * 557  # Flattened feature dimension
-        self.fc = nn.Linear(self.flatten_size, latent_dim)
-        self.features_dim = latent_dim
-
-    def forward(self, x):
-        # # x shape can be (batch_size, C, L) or (batch_size, C, N, P)
-        # if x.dim() == 4:
-        #     # Flatten patches back to 1D if it was reshaped in dataset
-        #     b, c, n, p = x.shape
-        #     x = x.reshape(b, c, n * p)
-        #     # Clip if it was padded beyond 17819 (though Conv1d is usually fine)
-        #     x = x[:, :, :17819]
-        assert x.dim() == 3, f"Expected input shape (batch_size, C, L), got {x.shape}"
-        x = self.encoder(x)
-        # x shape: (batch_size, 64, 557)
-        x = x.flatten(start_dim=1)  # Flatten to (batch_size, 64*557)
-        x = self.fc(x)              # Compress to latent_dim
-        return x
-
-
-class MLPEncoder(nn.Module):
-    """Simple MLP Encoder for genomic data."""
-
-    def __init__(self, in_channels=2, seq_length=17819, hidden_dim=1024, dropout=0.2):
-        super().__init__()
-        self.in_channels = in_channels
-        self.seq_length = seq_length
-        input_dim = in_channels * seq_length
-        
-        # Simple 3-layer MLP
-        self.mlp = nn.Sequential(
-            nn.Flatten(),
-            nn.Dropout(p=dropout),
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.BatchNorm1d(hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim // 2, hidden_dim // 4),
-            nn.BatchNorm1d(hidden_dim // 4),
-            nn.ReLU(),
-        )
-        self.features_dim = hidden_dim // 4
-        
-    def forward(self, x):
-        # Flatten to (batch_size, C * L)
-        x = x.flatten(start_dim=1)
-        x = self.mlp(x)
-        return x
-
-
-class ViT1DEncoder(nn.Module):
-    """1D Vision Transformer Encoder for genomic data."""
-
-    def __init__(
-        self,
-        in_channels=2,
-        seq_length=17819,
-        patch_size=100,
-        hidden_dim=256,
-        num_layers=6,
-        num_heads=8,
-        mlp_dim=512,
-        dropout=0.1,
-    ):
-        super().__init__()
-        self.patch_size = patch_size
-        self.in_channels = in_channels
-
-        # Calculate number of patches
-        self.num_patches = (seq_length + patch_size - 1) // patch_size
-
-        # Patch projection: using Linear layer since input is (batch, C, N, P)
-        self.patch_embed = nn.Linear(in_channels * patch_size, hidden_dim)
-
-        # CLS token
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
-
-        # Positional embedding
-        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, hidden_dim))
-        self.pos_drop = nn.Dropout(p=dropout)
-
-        # Transformer blocks
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=mlp_dim,
-            dropout=dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True
-        )
-        self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.norm = nn.LayerNorm(hidden_dim)
-
-        self.features_dim = hidden_dim
-
-        # Initialize
-        nn.init.trunc_normal_(self.pos_embed, std=0.02)
-        nn.init.trunc_normal_(self.cls_token, std=0.02)
-
-    def forward(self, x):
-        # x shape: (batch_size, C, N, P)
-        b, c, n, p = x.shape
-        
-        # Reshape to (batch_size, N, C*P)
-        x = x.permute(0, 2, 1, 3).reshape(b, n, c * p)
-        
-        x = self.patch_embed(x)  # (batch_size, num_patches, hidden_dim)
-
-        # Add CLS token
-        cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)  # (batch_size, num_patches + 1, hidden_dim)
-
-        # Add positional embedding
-        x = x + self.pos_embed
-        x = self.pos_drop(x)
-
-        # Transformer blocks
-        x = self.blocks(x)
-        x = self.norm(x)
-
-        # Return CLS token feature
-        return x[:, 0]
-
-
-class GenomicSSL(nn.Module):
-    """Genomic Self-Supervised Learning model implementation."""
-
-    def __init__(
-        self, backbone, features_dim, proj_hidden_dim=2048, proj_output_dim=2048
-    ):
-        super().__init__()
-        self.backbone = backbone
-        self.features_dim = features_dim
-
-        # Projector
-        self.projector = nn.Sequential(
-            nn.Linear(features_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_output_dim),
-        )
-
-    def forward(self, x):
-        features = self.backbone(x)
-        projections = self.projector(features)
-        return features, projections
-
 
 class LARS(optim.Optimizer):
     """LARS optimizer implementation."""
@@ -551,14 +366,9 @@ def run(
         logger.info("Loading genomic dataset...")
         
         # Default paths (can be overridden in config)
-        base_path = cfg.data.get(
-            "base_path",
-            "/home/dmlab/Devendra/Genotype_Induced_Drug_Design/PVAE/chromosome_coordinate"
-        )
-        
-        methylation_path = os.path.join(base_path, "methylation_tensor_chrom_ordered.pkl")
-        gene_expression_path = os.path.join(base_path, "gene_expression_tensor_chrom_ordered.pkl")
-        labels_path = os.path.join(base_path, "cancer_tags_tensor_chrom_ordered.pkl")
+        base_path = cfg.data.get("base_path")
+        methylation_path = os.path.join(base_path, "Final_Preprocessed_DNA_Methylation_UCSC_PCA_CancerTags.pkl")
+        gene_expression_path = os.path.join(base_path, "Final_Preprocessed_Gene_Expression_TCGA_CancerTags.pkl")
         
         # Get genomic-specific settings
         use_channels = cfg.data.get("use_channels", "both")
@@ -568,7 +378,6 @@ def run(
         full_dataset_raw = GenomicDataset(
             methylation_path=methylation_path,
             gene_expression_path=gene_expression_path,
-            labels_path=labels_path,
             transform=None,
             patch_size=patch_size,
             use_channels=use_channels,
@@ -679,7 +488,7 @@ def run(
             )
         else:
             # Use 1D Conv encoder for genomic data (default)
-            backbone = Conv1DEncoder(in_channels=in_channels)
+            backbone = Conv1DEncoder(in_channels=in_channels, latent_dim=cfg.model.latent_dim)
         features_dim = backbone.features_dim
     elif cfg.model.type == "resnet":
         in_channels = 3
@@ -861,6 +670,34 @@ def run(
                 linear_probe_state_dict=linear_probe.state_dict(),
                 linear_val_acc=val_acc,
             )
+
+    logger.info("Training completed!")
+
+    # Generate latent space visualizations for genomic data
+    if use_genomic and wandb_run:
+        logger.info("Generating latent space visualizations...")
+        try:
+            # Extract latent representations from validation set
+            features, val_labels = extract_latent_representations(
+                model, val_sampler, device=device, batch_size=cfg.data.batch_size
+            )
+            label_names = full_dataset_raw.label_names
+
+            # Create 2D UMAP visualization
+            png_path = exp_dir / "latent_space_umap_final.png"
+            title = f"Latent Space UMAP - Final Model"
+            plot_umap_2d(features, val_labels, label_names, png_path, title=title)
+            logger.info(f"2D UMAP saved to: {png_path}")
+            wandb.log({"latent_space_2d": wandb.Image(str(png_path))})
+
+            # Create 3D Plotly visualization
+            html_path = exp_dir / "latent_space_umap_3d_final.html"
+            title = f"3D Latent Space UMAP - Final Model"
+            plot_umap_3d(features, val_labels, label_names, html_path, title=title)
+            logger.info(f"3D UMAP saved to: {html_path}")
+            wandb.log({"latent_space_3d": wandb.Html(open(str(html_path)).read())})
+        except Exception as e:
+            logger.warning(f"Failed to generate latent space visualizations: {e}")
 
     logger.info("Training completed!")
     if wandb_run:
