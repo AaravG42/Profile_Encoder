@@ -709,25 +709,25 @@ def run(
 
     # Generate latent space visualizations for genomic data
     if use_genomic and wandb_run:
-        logger.info("Generating latent space visualizations...")
+        logger.info("Generating latent space visualizations for the entire dataset...")
         try:
-            # Extract latent representations from validation set
-            features, val_labels = extract_latent_representations(
-                model, val_sampler, device=device, batch_size=cfg.data.batch_size
+            # Extract latent representations from the ENTIRE dataset
+            features, all_labels = extract_latent_representations(
+                model, full_dataset_raw, device=device, batch_size=cfg.data.batch_size
             )
             label_names = full_dataset_raw.label_names
 
             # Create 2D UMAP visualization
             png_path = exp_dir / "latent_space_umap_final.png"
             title = f"Latent Space UMAP - Final Model"
-            plot_umap_2d(features, val_labels, label_names, png_path, title=title)
+            plot_umap_2d(features, all_labels, label_names, png_path, title=title)
             logger.info(f"2D UMAP saved to: {png_path}")
             wandb.log({"latent_space_2d": wandb.Image(str(png_path))})
 
             # Create 3D Plotly visualization
             html_path = exp_dir / "latent_space_umap_3d_final.html"
             title = f"3D Latent Space UMAP - Final Model"
-            plot_umap_3d(features, val_labels, label_names, html_path, title=title)
+            plot_umap_3d(features, all_labels, label_names, html_path, title=title)
             logger.info(f"3D UMAP saved to: {html_path}")
             wandb.log({"latent_space_3d": wandb.Html(open(str(html_path)).read())})
         except Exception as e:
