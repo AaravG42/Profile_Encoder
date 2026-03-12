@@ -22,13 +22,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     classification_report,
     f1_score,
     precision_score,
     recall_score,
+    roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -36,6 +39,10 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from umap import UMAP
 import plotly.graph_objects as go
+
+# Import LinearProbe from geno_jepa.eval
+from geno_jepa.eval import LinearProbe
+
 
 # --------------------------------------------------------------------------- #
 # Paths – override via CLI arguments or edit defaults here
@@ -212,8 +219,11 @@ def train_and_eval_linear_probe(
     features: np.ndarray,
     labels: np.ndarray,
     label_names: list[str],
+    device: torch.device,
     test_size: float = 0.2,
     seed: int = 42,
+    epochs: int = 100,
+    lr: float = 1e-3,
 ):
     X_tr, X_te, y_tr, y_te = train_test_split(
         features, labels, test_size=test_size, random_state=seed, stratify=labels
@@ -223,29 +233,55 @@ def train_and_eval_linear_probe(
     X_tr_s = scaler.fit_transform(X_tr)
     X_te_s  = scaler.transform(X_te)
 
-    print("Training logistic regression …")
-    clf = LogisticRegression(max_iter=2000, C=1.0, random_state=seed, n_jobs=-1)
-    clf.fit(X_tr_s, y_tr)
+    # Convert to torch tensors
+    X_tr_t = torch.from_numpy(X_tr_s).float().to(device)
+    y_tr_t = torch.from_numpy(y_tr).long().to(device)
+    X_te_t = torch.from_numpy(X_te_s).float().to(device)
+    y_te_t = torch.from_numpy(y_te).long().to(device)
 
-    y_pred = clf.predict(X_te_s)
+    print(f"Training LinearProbe (PyTorch) for {epochs} epochs …")
+    feature_dim = features.shape[1]
+    num_classes = len(label_names)
+    clf = LinearProbe(feature_dim, num_classes).to(device)
+    optimizer = torch.optim.Adam(clf.parameters(), lr=lr)
+    criterion = torch.nn.CrossEntropyLoss()
 
-    acc  = accuracy_score(y_te, y_pred)
+    clf.train()
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        outputs = clf(X_tr_t)
+        loss = criterion(outputs, y_tr_t)
+        loss.backward()
+        optimizer.step()
+
+    clf.eval()
+    with torch.no_grad():
+        logits = clf(X_te_t)
+        y_prob = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
+        _, predicted = torch.max(logits, dim=1)
+        y_pred = predicted.cpu().numpy()
+
+    acc    = accuracy_score(y_te, y_pred)
     # report class 1 = Dead
-    f1   = f1_score(y_te, y_pred, pos_label=1, zero_division=0)
-    prec = precision_score(y_te, y_pred, pos_label=1, zero_division=0)
-    rec  = recall_score(y_te, y_pred, pos_label=1, zero_division=0)
+    f1     = f1_score(y_te, y_pred, pos_label=1, zero_division=0)
+    prec   = precision_score(y_te, y_pred, pos_label=1, zero_division=0)
+    rec    = recall_score(y_te, y_pred, pos_label=1, zero_division=0)
+    auroc  = roc_auc_score(y_te, y_prob)
+    auprc  = average_precision_score(y_te, y_prob)
 
     print("\n" + "=" * 60)
     print("  VITAL STATUS PREDICTION — Linear Probe Results")
     print("=" * 60)
     print(f"  Accuracy  : {acc * 100:.2f}%")
+    print(f"  AUROC     : {auroc:.4f}")
+    print(f"  AUPRC     : {auprc:.4f}")
     print(f"  F1 (Dead) : {f1:.4f}")
     print(f"  Precision : {prec:.4f}  (Dead class)")
     print(f"  Recall    : {rec:.4f}  (Dead class)")
     print("\nFull classification report:")
     print(classification_report(y_te, y_pred, target_names=label_names, zero_division=0))
 
-    return acc, f1, prec, rec, y_te, y_pred
+    return acc, f1, prec, rec, auroc, auprc, y_te, y_pred
 
 
 # --------------------------------------------------------------------------- #
@@ -381,7 +417,10 @@ def main(
 
     # 4. Train linear probe & report metrics
     print("\n[4/4] Training and evaluating linear probe …")
-    train_and_eval_linear_probe(features, labels, label_names, test_size=test_size, seed=seed)
+    train_and_eval_linear_probe(
+        features, labels, label_names,
+        device=dev, test_size=test_size, seed=seed
+    )
 
     # 5. UMAP plots
     plot_umap_2d(
