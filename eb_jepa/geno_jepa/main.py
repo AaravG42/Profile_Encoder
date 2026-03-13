@@ -607,6 +607,14 @@ def run(
         momentum=0.9,
     )
 
+    # optimizer = optim.AdamW(
+    #     [
+    #         {"params": model.parameters(), "lr": cfg.optim.lr},
+    #         {"params": linear_probe.parameters(), "lr": 1e-3},  # Linear probe parameters
+    #     ],
+    #     weight_decay=cfg.optim.weight_decay,
+    # )
+
     scheduler = WarmupCosineScheduler(
         optimizer,
         warmup_epochs=cfg.optim.warmup_epochs,

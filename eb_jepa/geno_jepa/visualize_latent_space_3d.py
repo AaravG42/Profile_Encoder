@@ -286,10 +286,6 @@ def plot_umap_3d(features, labels, label_names, save_path="latent_space_umap_3d.
     fig.write_html(str(save_path))
     print(f"Interactive 3D UMAP visualization saved to: {save_path}")
     
-    # Open in browser
-    print(f"\nOpening visualization in browser...")
-    fig.show()
-    
     # Also create a version with cancer type colors (one trace per cancer type)
     plot_umap_3d_by_cancer(embedding, labels, label_names, 
                            save_path.parent / f"{save_path.stem}_by_cancer.html", 
@@ -367,9 +363,6 @@ def plot_umap_3d_by_cancer(embedding, labels, label_names, save_path, title):
     # Save the interactive plot
     fig.write_html(str(save_path))
     print(f"Cancer-type colored 3D UMAP saved to: {save_path}")
-    
-    # Also show in browser
-    fig.show()
 
 
 def main(

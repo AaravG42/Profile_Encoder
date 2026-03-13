@@ -9,9 +9,9 @@ data:
   use_genomic: true  # Use genomic data instead of CIFAR-10
   use_channels: both # 'both', 'gene', or 'meth'
   base_path: /data/TCGA_cleaned
-  batch_size: 128     # Smaller batch size for genomic data
+  batch_size: 4096     # Smaller batch size for genomic data
   num_workers: 12
-  mask_ratio: 0.30
+  mask_ratio: 0.15
 
 model:
   # Backbone
@@ -37,11 +37,11 @@ model:
   proj_output_dim: 256
 
   # Predictor
-  use_predictor: true
+  use_predictor: false
   pred_hidden_dim: 2048
 
 loss:
-  type: vicreg       # vicreg or bcs
+  type: bcs       # vicreg or bcs
   # VICReg loss weights
   std_coeff: 1.0
   cov_coeff: 80.0
@@ -49,7 +49,7 @@ loss:
   lmbd: 10.0
 
 optim:
-  epochs: 150
+  epochs: 50
   lr: 0.1            # Lower learning rate for genomic data
   weight_decay: 1.0e-4
   warmup_epochs: 10
