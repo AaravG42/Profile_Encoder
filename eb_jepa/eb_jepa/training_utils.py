@@ -310,10 +310,12 @@ def get_exp_name(example_name: str, cfg) -> str:
     if example_name == "image_jepa":
         proj = "proj" if cfg.model.use_projector else "noproj"
         pred = "pred" if cfg.model.use_predictor else "nopred"
+        optim_type = cfg.optim.get("type", "adamw")
         parts = [
             cfg.data.use_channels,
             cfg.model.type,
             cfg.loss.type,
+            optim_type,
             proj,
             pred,
             f"bs{cfg.data.batch_size}",

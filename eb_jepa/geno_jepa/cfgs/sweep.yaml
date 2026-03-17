@@ -1,0 +1,22 @@
+name: geno_jepa_sweep
+method: grid
+metric:
+  name: val_acc
+  goal: maximize
+parameters:
+  data.batch_size:
+    values: [32, 64, 128, 256, 512, 1024, 2048, 4096]
+  optim.lr:
+    values: [0.1, 0.01, 0.001, 0.0001, 3e-4]
+  optim.type:
+    values: ["adamw", "lars"]
+  optim.epochs:
+    value: 100
+command:
+  - ${env}
+  - python
+  - -m
+  - geno_jepa.main
+  - --fname
+  - /home/aarav/Profile_VAE/eb_jepa/geno_jepa/cfgs/genomic.yaml
+  - ${args}

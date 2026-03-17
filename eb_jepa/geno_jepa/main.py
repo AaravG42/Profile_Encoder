@@ -334,6 +334,9 @@ def run(
     # Load config
     if cfg is None:
         cfg = load_config(fname, overrides if overrides else None)
+    elif isinstance(cfg, str):
+        # Handle cases where cfg might be passed as a string (e.g., from certain fire/sweep calls)
+        cfg = load_config(cfg, overrides if overrides else None)
 
     # Setup using shared utilities
     device = setup_device(cfg.meta.device)
@@ -349,7 +352,7 @@ def run(
             sweep_name = get_default_dev_name()
             exp_name = get_exp_name("image_jepa", cfg)
             exp_dir = get_unified_experiment_dir(
-                example_name="image_jepa",
+                example_name="geno_jepa", #CHANGE THIS BACK FOR INDIVIDUAL RUNS
                 sweep_name=sweep_name,
                 exp_name=exp_name,
                 seed=cfg.meta.seed,
@@ -595,25 +598,31 @@ def run(
     scaler = GradScaler(device.type, enabled=use_amp)
     logger.info(f"Using AMP with {dtype=}" if use_amp else f"AMP disabled")
 
-    optimizer = LARS(
-        [
-            {"params": model.parameters(), "lr": cfg.optim.lr},
-            {"params": linear_probe.parameters(), "lr": 0.1},  # Linear probe parameters
-        ],
-        weight_decay=cfg.optim.weight_decay,
-        eta=0.02,
-        clip_lr=True,
-        exclude_bias_n_norm=True,
-        momentum=0.9,
-    )
-
-    # optimizer = optim.AdamW(
-    #     [
-    #         {"params": model.parameters(), "lr": cfg.optim.lr},
-    #         {"params": linear_probe.parameters(), "lr": 1e-3},  # Linear probe parameters
-    #     ],
-    #     weight_decay=cfg.optim.weight_decay,
-    # )
+    # Optimizer setup
+    optim_type = cfg.optim.get("type", "adamw").lower()
+    
+    if optim_type == "lars":
+        logger.info("Using LARS optimizer")
+        optimizer = LARS(
+            [
+                {"params": model.parameters(), "lr": cfg.optim.lr},
+                {"params": linear_probe.parameters(), "lr": 1e-3},  # Linear probe parameters
+            ],
+            weight_decay=cfg.optim.weight_decay,
+            eta=cfg.optim.get("lars_eta", 0.02),
+            clip_lr=cfg.optim.get("lars_clip_lr", True),
+            exclude_bias_n_norm=cfg.optim.get("lars_exclude_bias_n_norm", True),
+            momentum=cfg.optim.get("lars_momentum", 0.9),
+        )
+    else:
+        logger.info("Using AdamW optimizer")
+        optimizer = optim.AdamW(
+            [
+                {"params": model.parameters(), "lr": cfg.optim.lr},
+                {"params": linear_probe.parameters(), "lr": 1e-3},  # Linear probe parameters
+            ],
+            weight_decay=cfg.optim.weight_decay,
+        )
 
     scheduler = WarmupCosineScheduler(
         optimizer,
