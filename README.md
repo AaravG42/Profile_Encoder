@@ -1,6 +1,6 @@
-# Profile VAE
+# Profile Encoder
 
-This repository contains the implementation of Profile VAE (PVAE) for Genotype Induced Drug Design.
+This repository contains the implementation of Profile Encoder for Genotype Induced Drug Design.
 
 ## Structure
 - `eb_jepa/`: EB-JEPA related code.
