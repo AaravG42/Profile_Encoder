@@ -62,6 +62,7 @@ from geno_jepa.models import (
     ResNet18,
     Conv1DEncoder,
     ViT1DEncoder,
+    ScGPTEncoder,
     MLPEncoder,
     GenomicSSL,
     Predictor,
@@ -490,6 +491,26 @@ def run(
                 num_layers=num_layers,
                 num_heads=num_heads,
                 mlp_dim=mlp_dim
+            )
+        elif cfg.model.type == "scgpt":
+            hidden_dim = cfg.model.get("hidden_dim", 256)
+            num_layers = cfg.model.get("num_layers", 6)
+            num_heads = cfg.model.get("num_heads", 8)
+            mlp_dim = cfg.model.get("mlp_dim", 512)
+            dropout = cfg.model.get("dropout", 0.1)
+            num_bins = cfg.model.get("num_bins", 51)
+            max_tokens = cfg.model.get("max_tokens", 512)
+
+            backbone = ScGPTEncoder(
+                in_channels=in_channels,
+                seq_length=17819,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                num_heads=num_heads,
+                mlp_dim=mlp_dim,
+                dropout=dropout,
+                num_bins=num_bins,
+                max_tokens=max_tokens,
             )
         elif cfg.model.type == "mlp":
             # Use simple MLP encoder for genomic data

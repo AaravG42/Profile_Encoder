@@ -9,16 +9,16 @@ data:
   use_genomic: true  # Use genomic data instead of CIFAR-10
   use_channels: both # 'both', 'gene', or 'meth'
   base_path: /data/TCGA_cleaned
-  batch_size: 4096     # Smaller batch size for genomic data
-  num_workers: 12
+  batch_size: 128     # Smaller batch size for genomic data
+  num_workers: 100
   mask_ratio: 0.15
 
 model:
   # Backbone
-  type: mlp       # conv1d, mlp, vit (for genomic), resnet, vit_s, vit_b (for images)
+  type: cnn       # conv1d, mlp, vit, scgpt (for genomic), resnet, vit_s, vit_b (for images)
   
   # Conv 1D parameters
-  latent_dim: 4096
+  # latent_dim: 4096
 
   # ViT parameters (only used if type=vit)
   # patch_size: 190
@@ -27,14 +27,21 @@ model:
   # num_heads: 8
   # mlp_dim: 512
 
-  # # MLP parameters (only used if type=mlp)
-  hidden_dim: 4096  # First hidden layer size (output is hidden_dim // 4)
-  dropout: 0.2      # Dropout rate
+  # # # MLP parameters (only used if type=mlp)
+  # hidden_dim: 4096  # First hidden layer size (output is hidden_dim // 4)
+  # dropout: 0.2      # Dropout rate
+
+  # # scGPT-inspired parameters (only used if type=scgpt)
+  # num_layers: 6
+  # num_heads: 8
+  # mlp_dim: 512
+  # num_bins: 51
+  # max_tokens: 512
 
   # Projector
   use_projector: true
-  proj_hidden_dim: 256
-  proj_output_dim: 256
+  proj_hidden_dim: 2048
+  proj_output_dim: 2048
 
   # Predictor
   use_predictor: false
@@ -50,7 +57,7 @@ loss:
 
 optim:
   type: lars        # adamw or lars
-  epochs: 50
+  epochs: 100
   lr: 0.1            # Lower learning rate for genomic data
   weight_decay: 1.0e-4
   warmup_epochs: 10
